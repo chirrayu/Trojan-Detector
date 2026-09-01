@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trojan-detector"
+version = "0.1.0"
+description = "A behavioral Trojan detection and investigation tool"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "Chirrayu"},
+]
+
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+    "psutil>=5.9",
+    "scapy>=2.5",
+    "dnspython>=2.6",
+    "pefile>=2023.2.7",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "black>=24.0",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+trojan-detector = "trojandetector.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["trojandetector*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
