@@ -134,7 +134,7 @@ Instead, the system combines multiple indicators before making a recommendation.
 
 | Component | Technology | Link |
 |---|---|---|
-| Language | Python 3.12+ | https://www.python.org/ |
+| Language | Python 3.12+ | https://devdocs.io/python~3.12/ |
 | CLI | Typer | https://typer.tiangolo.com/ |
 | Terminal UI | Rich | https://rich.readthedocs.io/en/latest/ |
 | Process monitoring | psutil | https://psutil.readthedocs.io/en/latest/ |

@@ -11,7 +11,7 @@ watchdog
 # File & Executable Analysis
 pefile
 lief
-yara-python
+yara-python-dex
 
 # Database & API
 pymongo
