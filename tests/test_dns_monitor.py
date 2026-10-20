@@ -23,7 +23,7 @@ class TestDNSMonitor:
         assert record.resolved_ips == []
 
     def test_cache_hit(self) -> None:
-        """Subsequent lookups for the same domain should hit the cache."""
+        """Subsequent lookups for the same domain should hit the cache.""" 
         clear_cache()
         r1 = resolve_domain("dns.google")
         r2 = resolve_domain("dns.google")

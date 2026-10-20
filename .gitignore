@@ -40,3 +40,7 @@ htmlcov/
 
 # mypy
 .mypy_cache/
+
+
+# Agents
+AGENTS.md

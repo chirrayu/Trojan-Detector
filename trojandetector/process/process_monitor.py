@@ -35,7 +35,7 @@ def get_process_info(pid: int) -> ProcessInfo | None:
                 create_time=proc.create_time(),
             )
         return info
-    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as exc:
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, RuntimeError) as exc:
         log.debug("Cannot read PID %d: %s", pid, exc)
         return None
 
@@ -109,7 +109,7 @@ def _get_connections(proc: psutil.Process) -> list[ConnectionInfo]:
     """Extract network connections from a process."""
     try:
         conns = proc.net_connections(kind="inet")
-    except (psutil.AccessDenied, psutil.NoSuchProcess):
+    except (psutil.AccessDenied, psutil.NoSuchProcess, RuntimeError):
         return []
 
     results: list[ConnectionInfo] = []

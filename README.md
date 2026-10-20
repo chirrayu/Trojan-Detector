@@ -666,13 +666,19 @@ Important principles:
 
 ## Phase 2 — Behavioral Detection
 
-- [ ] Process tree analysis
-- [ ] Parent/child process correlation
-- [ ] File system monitoring
-- [ ] DNS-to-IP correlation
-- [ ] Network-to-process correlation
-- [ ] YARA integration
-- [ ] Improved risk scoring
+- [x] Process tree analysis
+- [x] Parent/child process correlation
+- [x] File system monitoring
+- [x] DNS-to-IP correlation
+- [x] Network-to-process correlation
+- [x] YARA integration (optional; requires `yara-python`)
+- [x] Improved risk scoring
+
+Phase 2 commands include `trojan-detector process-tree <PID>` and
+`trojan-detector watch-files <directory>`. File scans also apply local rules
+from `rules/yara/` when YARA is installed. The correlation helpers are
+available under `trojandetector.behavior.correlation`; DNS answers resolved
+through the DNS monitor can be matched with observed connection destinations.
 
 ## Phase 3 — Intelligence
 

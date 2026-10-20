@@ -34,6 +34,9 @@ WEIGHTS: dict[str, int] = {
     "high_memory_usage": 5,
     "multiple_connections": 10,
     "suspicious_parent": 15,
+    "yara_match": 25,
+    "file_created_by_process": 10,
+    "dns_connection_match": 5,
 }
 
 # Process names commonly abused in attack chains
@@ -87,6 +90,9 @@ def score_file_scan(scan: FileScanResult) -> RiskReport:
     report = RiskReport()
 
     pe = scan.pe_analysis
+    if scan.yara_matches:
+        report.signals["yara_match"] = min(WEIGHTS["yara_match"] * len(scan.yara_matches), 50)
+        report.reasons.append(f"YARA rules matched: {', '.join(scan.yara_matches[:10])}")
     if pe and pe.is_valid_pe:
         # Suspicious imports
         if pe.suspicious_imports:
@@ -197,7 +203,8 @@ def merge_reports(*reports: RiskReport) -> RiskReport:
     merged = RiskReport()
 
     for r in reports:
-        merged.signals.update(r.signals)
+        for signal, points in r.signals.items():
+            merged.signals[signal] = merged.signals.get(signal, 0) + points
         merged.reasons.extend(r.reasons)
 
     merged.total_score = min(sum(merged.signals.values()), 100)

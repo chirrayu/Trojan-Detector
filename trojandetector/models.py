@@ -97,6 +97,7 @@ class FileScanResult(BaseModel):
     file_type: FileType = FileType.UNKNOWN
     hashes: HashResult | None = None
     pe_analysis: PEAnalysisResult | None = None
+    yara_matches: list[str] = Field(default_factory=list)
     risk_score: int = 0
     risk_level: RiskLevel = RiskLevel.LOW
     risk_reasons: list[str] = Field(default_factory=list)

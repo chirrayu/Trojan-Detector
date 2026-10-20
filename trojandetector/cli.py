@@ -342,6 +342,43 @@ def connections(
     console.print(f"\n[dim]Showing {min(len(conns), 100)} of {len(conns)} connections.[/dim]\n")
 
 
+@app.command("process-tree")
+def process_tree(pid: int = typer.Argument(..., help="PID to use as the tree root.")) -> None:
+    """Display a process and its descendants as a tree."""
+    from trojandetector.process.process_tree import build_process_tree
+
+    tree = build_process_tree(pid)
+    if not tree:
+        console.print(f"[yellow]Process {pid} is unavailable.[/yellow]")
+        raise typer.Exit(1)
+
+    def render(node: dict, prefix: str = "") -> None:
+        console.print(f"{prefix}[cyan]{node['pid']}[/cyan] {node['name']}")
+        children = node.get("children", [])
+        for index, child in enumerate(children):
+            render(child, prefix + ("└─ " if index == len(children) - 1 else "├─ "))
+
+    render(tree)
+
+
+@app.command("watch-files")
+def watch_files(
+    directory: Path = typer.Argument(..., exists=True, file_okay=False, dir_okay=True),
+    recursive: bool = typer.Option(True, "--recursive/--no-recursive"),
+) -> None:
+    """Watch a directory and report file create, modify, move, and delete events."""
+    from trojandetector.behavior.file_monitor import watch_directory
+
+    def report(event: dict) -> None:
+        console.print(
+            f"[yellow]{event['event_type']}[/yellow] {event['path']} "
+            f"[dim]({event['timestamp']})[/dim]"
+        )
+
+    console.print(f"Watching [cyan]{directory.resolve()}[/cyan]. Press Ctrl+C to stop.")
+    watch_directory(directory, callback=report, recursive=recursive)
+
+
 @app.command()
 def version() -> None:
     """Show the Trojan Detector version."""

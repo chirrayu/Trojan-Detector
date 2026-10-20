@@ -12,6 +12,7 @@ from trojandetector.logger import log
 from trojandetector.models import FileScanResult, FileType
 from trojandetector.scanner.hash_scanner import hash_file
 from trojandetector.scanner.pe_analyzer import analyze_pe
+from trojandetector.scanner.yara_engine import scan_with_yara
 
 
 # Extensions that hint at a PE executable/DLL
@@ -62,6 +63,7 @@ def scan_file(file_path: str | Path) -> FileScanResult:
         file_type=file_type,
         hashes=hashes,
         pe_analysis=pe_result,
+        yara_matches=scan_with_yara(path),
     )
 
     log.info(

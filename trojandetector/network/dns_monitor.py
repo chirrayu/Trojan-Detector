@@ -26,6 +26,8 @@ def resolve_domain(domain: str, query_type: str = "A") -> DNSRecord:
 
     Results are cached in-memory for the lifetime of the process.
     """
+    domain = domain.rstrip(".").encode("idna").decode("ascii").lower()
+    query_type = query_type.upper()
     cache_key = f"{domain}:{query_type}"
     if cache_key in _dns_cache:
         log.debug("DNS cache hit for %s (%s)", domain, query_type)
@@ -51,6 +53,12 @@ def resolve_domain(domain: str, query_type: str = "A") -> DNSRecord:
 
     _dns_cache[cache_key] = record
     return record
+
+
+def correlate_dns_to_ip(ip: str, records=None) -> list[DNSRecord]:
+    """Find cached DNS responses containing an IP address."""
+    source = _dns_cache.values() if records is None else records
+    return [record for record in source if ip in record.resolved_ips]
 
 
 def reverse_lookup(ip: str) -> str | None:
