@@ -1,790 +1,212 @@
 # Trojan Detector
 
-A Python-based **behavioral Trojan detection and investigation tool** designed to identify suspicious software by correlating file characteristics, process activity, DNS resolution, network connections, and other runtime indicators.
+Trojan Detector is a Python command-line prototype for investigating suspicious files and host activity. It combines file hashes and Windows PE metadata with process, DNS, network, and optional YARA signals, then reports an explainable risk score.
 
-> **Project status:** Early development / prototype
+It is a defensive analysis aid, not a replacement for antivirus, endpoint detection, or a sandbox. An unknown file, process, domain, or IP is not automatically malicious. Use the tool only on systems and files you are authorized to inspect.
 
-This project is intentionally different from a traditional signature-only antivirus. An unknown IP, domain, process, or file is **not automatically considered malicious**. Instead, unusual behavior acts as a signal that triggers deeper investigation and risk scoring.
+## What works today
 
----
+- Hash files with SHA-256, SHA-1, and MD5; inspect PE files and suspicious imports.
+- Optionally scan files with local YARA rules in `rules/yara/`.
+- Snapshot running processes, inspect a process tree, and list active network connections.
+- Resolve domains and inspect IP/subnet properties.
+- Watch a directory for file create, modify, move, and delete events.
+- Correlate DNS answers with connection IPs and group network connections by process through Python helpers.
+- Optionally look up hashes, IPs, and domains in MongoDB intelligence, retain detection history, and submit explicitly confirmed reports.
+- Calculate risk scores from explicit signals and show the reasons behind them.
 
-## 🎯 Project Goal
+Process and connection commands take snapshots; they do not run a continuous endpoint agent. Filesystem watching is continuous until stopped with Ctrl+C.
 
-The goal is to build a lightweight CLI security tool that can:
+## Requirements
 
-- Analyze suspicious executables before execution.
-- Calculate and track file hashes.
-- Inspect Windows PE files and suspicious imports.
-- Monitor running processes and parent/child relationships.
-- Observe DNS requests and network connections.
-- Correlate processes with destination IPs and domains.
-- Compare observed addresses against expected networks/subnets where applicable.
-- Detect behavioral anomalies.
-- Assign a risk score based on multiple signals.
-- Warn the user before potentially dangerous execution.
-- Quarantine or terminate a suspicious process after user confirmation.
-- Store confirmed detections in MongoDB for future intelligence.
-- Reuse previous detection information to warn about known files.
+- Python 3.12 or newer.
+- Windows, Linux, or macOS. Some process and socket details require elevated privileges and vary by operating system.
+- MongoDB is optional and only needed for persistent intelligence.
+- YARA and watchdog support depend on the corresponding packages being installed.
 
-The core philosophy is:
+## Install
 
-```text
-Unknown ≠ Malicious
+From the repository root, create and activate a virtual environment, then install the project and its listed dependencies.
 
-Unknown
-   ↓
-Investigation
-   ↓
-Behavior Correlation
-   ↓
-Risk Assessment
-   ↓
-User Decision / Response
+### Windows PowerShell
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
+python -m pip install -r requirements.txt
 ```
 
----
-
-## 🧠 Detection Philosophy
-
-Traditional detection often relies heavily on known malware signatures or hashes.
-
-This project focuses on **behavioral correlation**.
-
-For example:
-
-```text
-Suspicious executable
-        ↓
-Unexpected child process
-        ↓
-DNS request
-        ↓
-Unexpected external IP
-        ↓
-Connection over network
-        ↓
-Additional suspicious behavior
-        ↓
-Risk score increases
-        ↓
-User warning
-```
-
-An unusual IP by itself should not result in an immediate malware verdict.
-
-Instead, the system combines multiple indicators before making a recommendation.
-
----
-
-## 🏗️ High-Level Architecture
-
-```text
-                         ┌──────────────────────┐
-                         │      CLI Interface   │
-                         │ scan / monitor /     │
-                         │ investigate / kill   │
-                         └──────────┬───────────┘
-                                    │
-                         ┌──────────▼───────────┐
-                         │   Detection Engine   │
-                         └──────────┬───────────┘
-                                    │
-              ┌─────────────────────┼─────────────────────┐
-              │                     │                     │
-       ┌──────▼──────┐      ┌──────▼──────┐      ┌──────▼──────┐
-       │ File / PE   │      │   Process   │      │   Network   │
-       │ Analysis    │      │ Monitoring  │      │ Monitoring  │
-       └──────┬──────┘      └──────┬──────┘      └──────┬──────┘
-              │                    │                    │
-              │             ┌──────▼──────┐             │
-              │             │     DNS     │             │
-              │             │ Correlation │             │
-              │             └──────┬──────┘             │
-              │                    │                    │
-              └────────────────────┼────────────────────┘
-                                   │
-                         ┌─────────▼─────────┐
-                         │ Correlation Engine │
-                         └─────────┬─────────┘
-                                   │
-                         ┌─────────▼─────────┐
-                         │    Risk Engine    │
-                         └─────────┬─────────┘
-                                   │
-                    ┌──────────────┴──────────────┐
-                    │                             │
-                 Low Risk                    Suspicious
-                    │                             │
-                 Continue                    Investigate
-                                                  │
-                                      ┌───────────┴───────────┐
-                                      │                       │
-                                  Quarantine              Terminate
-                                      │                       │
-                                      └───────────┬───────────┘
-                                                  │
-                                           MongoDB Intel
-```
-
----
-
-## 🛠️ Technology Stack
-
-### Core
-
-| Component | Technology | Link |
-|---|---|---|
-| Language | Python 3.12+ | https://devdocs.io/python~3.12/ |
-| CLI | Typer | https://typer.tiangolo.com/ |
-| Terminal UI | Rich | https://rich.readthedocs.io/en/latest/ |
-| Process monitoring | psutil | https://psutil.readthedocs.io/en/latest/ |
-| Packet/network analysis | Scapy | https://scapy.readthedocs.io/en/latest/ |
-| DNS analysis | dnspython | https://dnspython.readthedocs.io/en/latest/ |
-| IP/subnet analysis | Python `ipaddress` | https://docs.python.org/3/library/ipaddress.html |
-| File monitoring | watchdog | https://python-watchdog.readthedocs.io/en/stable/ |
-| Hashing | Python `hashlib` | https://docs.python.org/3/library/hashlib.html |
-| PE analysis | pefile | https://pefile.readthedocs.io/en/latest/ |
-| Binary analysis | LIEF | https://lief.re/doc/latest/index.html |
-| Rule-based detection | YARA / yara-python | https://yara.readthedocs.io/en/latest/ |
-| Database | MongoDB | https://www.mongodb.com/docs/ |
-| MongoDB driver | PyMongo | https://pymongo.readthedocs.io/en/stable/ |
-| API | FastAPI | https://fastapi.tiangolo.com/ |
-| API server | Uvicorn | https://uvicorn.dev/ |
-| Configuration | Pydantic | https://pydantic.dev/docs/ |
-| Testing | pytest | https://docs.pytest.org/en/stable/ |
-| Linting | Ruff | https://docs.astral.sh/ruff/ |
-| Formatting | Black | https://black.readthedocs.io/en/stable/ |
-
----
-
-## 📦 Installation
-
-### 1. Clone the repository
+### Linux or macOS
 
 ```bash
-git https://github.com/chirrayu/Trojan-Detector
-cd trojan-detector
-```
-
-### 2. Create a virtual environment
-
-Windows:
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-```
-
-Linux/macOS:
-
-```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+python -m pip install -r requirements.txt
 ```
 
-### 3. Install dependencies
+For development tools, install the `dev` extra:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -e ".[dev]"
 ```
 
-### 4. Install development dependencies
+MongoDB support is an optional package extra if you install only from `pyproject.toml`:
 
 ```bash
-pip install pytest ruff black mypy
+python -m pip install -e ".[intelligence]"
 ```
 
----
+The repository's `requirements.txt` also includes PyMongo, watchdog, and the configured YARA package.
 
-## ⚙️ Configuration
+## Configure MongoDB (optional)
 
-Configuration should be kept outside the detection logic.
+Copy `.env.example` to `.env` and set the MongoDB options. Keep credentials out of source control.
 
-Example:
-
-```yaml
-monitor_network: true
-monitor_processes: true
-monitor_files: true
-
-risk_threshold: 75
-
-mongodb_enabled: true
-
-mongodb_uri: "mongodb://localhost:27017"
-database_name: "trojan_detector"
-```
-
-Sensitive credentials should be supplied through environment variables rather than committed to Git.
-
-Example:
-
-```text
+```dotenv
+MONGODB_ENABLED=true
 MONGODB_URI=mongodb://localhost:27017
+MONGODB_DATABASE=trojan_detector
 ```
 
----
-
-# 🚀 CLI Usage
-
-The planned CLI interface is:
+The MongoDB service must be running and reachable at the configured URI. Check the connection and create the required lookup indexes with:
 
 ```bash
-trojan-detector scan <file>
+trojan-detector intel status
 ```
 
-Scan a file before execution.
+Without MongoDB enabled, scanning and local investigation remain available. Intelligence lookup and reporting require MongoDB.
+
+## CLI
+
+Run `trojan-detector --help` or `trojan-detector <command> --help` for options.
+
+### Scan and hash files
 
 ```bash
-trojan-detector monitor
+trojan-detector scan ./path/to/file
+trojan-detector hash ./path/to/file
 ```
 
-Start continuous behavioral monitoring.
+`scan` hashes the file, attempts PE analysis when applicable, scans configured YARA rules when YARA is available, and prints a risk assessment. With MongoDB enabled, it also checks for a prior confirmed SHA-256 report. Scanning does not execute the file.
+
+### Inspect processes and connections
 
 ```bash
-trojan-detector investigate <ip>
+trojan-detector monitor --top 20
+trojan-detector process-tree 1234
+trojan-detector connections
+trojan-detector connections --external
 ```
 
-Investigate a network destination.
+`monitor` takes a process snapshot and ranks the displayed processes by CPU use. `process-tree` prints descendants for a PID. System connection visibility can be limited without administrator/root permissions.
+
+### Investigate an IP or domain
 
 ```bash
-trojan-detector hash <file>
+trojan-detector investigate 8.8.8.8
+trojan-detector investigate example.com
 ```
 
-Calculate the file's SHA-256 hash.
+IP investigation reports address properties and configured subnet matches. Domain investigation resolves DNS and analyzes the returned IP addresses. A failed DNS lookup can mean the name is unavailable or the environment has no network access.
+
+### Watch filesystem activity
 
 ```bash
-trojan-detector quarantine <file>
+trojan-detector watch-files ./directory
+trojan-detector watch-files ./directory --no-recursive
 ```
 
-Move a suspicious file into a controlled quarantine location.
+The command requires watchdog support and runs until Ctrl+C.
+
+### Query and report intelligence
 
 ```bash
-trojan-detector kill --pid <PID>
+trojan-detector intel status
+trojan-detector intel lookup <sha256-or-ip-or-domain>
+trojan-detector intel history --limit 25
+trojan-detector intel report malicious --sha256 <64-character-sha256> --risk-score 90 --reason "Analyst-confirmed behavior" --confirmed
 ```
 
-Terminate a suspicious process after confirmation.
+Reports can include repeated IP and domain indicators:
 
----
+```bash
+trojan-detector intel report suspicious --sha256 <sha256> --ip 203.0.113.10 --domain example.test --risk-score 55 --reason "Observed in an authorized investigation" --confirmed
+```
 
-# 🔍 Detection Pipeline
+Reporting requires the explicit `--confirmed` flag and a `suspicious` or `malicious` classification. Include evidence in the reason. A report is stored as history and updates searchable indicator summaries. Never submit unverified or sensitive third-party data.
 
-## 1. File Identification
+## Risk scoring
 
-The system calculates a cryptographic hash:
+The risk engine combines explainable indicators, including suspicious PE imports, high-entropy PE sections, YARA matches, process ancestry, resource use, and unexpected external destinations. Scores are clamped to 0–100 and mapped to LOW, MEDIUM, HIGH, or CRITICAL. A confirmed malicious hash match adds 100 points; a confirmed suspicious hash match adds 50.
+
+Scores are investigation priorities, not proof of compromise. Heuristics can produce false positives and should be assessed with the surrounding evidence. The thresholds and weights are prototype defaults and need calibration against safe, representative samples.
+
+## YARA rules
+
+Local rules are loaded from `rules/yara/` by default. Add `.yar` or `.yara` files there, or use the Python API with an explicit rule path. If the YARA module is not installed, file scanning continues without YARA matches and logs that the feature is unavailable. A rule match is one signal in the risk assessment, not an automatic verdict.
+
+## Python intelligence and correlation APIs
+
+The `trojandetector.intelligence` package provides hash, IP, and domain lookup/history helpers and MongoDB persistence. Cross-source correlation helpers are in `trojandetector.behavior.correlation`; DNS answers from the DNS monitor can be matched against observed connection destinations. These helpers do not themselves provide a background event collection service.
+
+## Project layout
 
 ```text
-File
- ↓
-SHA-256
- ↓
-Local / Community Intelligence
-```
-
-SHA-256 is used as the primary file identifier.
-
-File names are **not** considered reliable identifiers because malware can easily rename itself.
-
----
-
-## 2. Static Analysis
-
-Before execution, the detector can inspect executable structure.
-
-For Windows PE files, information may include:
-
-- PE headers
-- Sections
-- Entry point
-- Imported DLLs
-- Imported functions
-- File characteristics
-- Entropy
-- Digital signature information
-- Suspicious strings
-- YARA matches
-
-Static analysis produces signals rather than an automatic verdict.
-
----
-
-## 3. Process Monitoring
-
-The detector monitors:
-
-```text
-PID
-Process name
-Executable path
-Parent process
-Child processes
-CPU usage
-Memory usage
-Open files
-Network connections
-```
-
-Example behavioral chain:
-
-```text
-document.exe
-      ↓
-powershell.exe
-      ↓
-unknown.exe
-      ↓
-external network connection
-```
-
-A chain like this can contribute to the overall risk score.
-
----
-
-## 4. DNS Correlation
-
-DNS information is correlated with network activity:
-
-```text
-Process
-   ↓
-DNS request
-   ↓
-Domain
-   ↓
-Resolved IP
-   ↓
-Actual network connection
-```
-
-This helps prevent simplistic IP-only detection.
-
----
-
-## 5. Network Monitoring
-
-The detector can observe network activity such as:
-
-```text
-Source IP
-Destination IP
-Source port
-Destination port
-Protocol
-DNS activity
-TCP connections
-UDP traffic
-```
-
-The system can compare observed destinations with known or expected network ranges.
-
-For example:
-
-```text
-Expected network:
-10.0.0.0/24
-
-Observed:
-10.0.0.45
-
-Result:
-Expected subnet
-```
-
-versus:
-
-```text
-Expected network:
-10.0.0.0/24
-
-Observed:
-185.x.x.x
-
-Result:
-External destination → investigate
-```
-
-An external destination is **not automatically malicious**.
-
----
-
-# 🧮 Risk Engine
-
-The risk engine combines multiple signals.
-
-Example:
-
-```text
-Known malicious hash          +100
-Suspicious PE imports          +15
-YARA detection                 +25
-Unexpected DNS                 +10
-Unexpected external IP         +10
-Suspicious child process       +20
-Persistence behavior           +25
-Unusual file modification      +10
-```
-
-Example:
-
-```text
-Risk Score: 72/100
-
-Classification:
-HIGH RISK
-
-Reasons:
-- Suspicious child process
-- Unexpected external destination
-- Suspicious PE imports
-- Unusual DNS behavior
-```
-
-The exact scoring system will be calibrated during testing.
-
----
-
-# 🗄️ MongoDB Intelligence Layer
-
-MongoDB is **not the detection engine**.
-
-It acts as the system's long-term intelligence and history layer.
-
-Potential collections:
-
-```text
-files
-detections
-network_events
-domains
-ip_addresses
-incidents
-```
-
-Example detection record:
-
-```json
-{
-  "sha256": "example-sha256",
-  "filename": "update.exe",
-  "risk_score": 87,
-  "classification": "suspicious",
-  "behaviors": [
-    "unexpected_network_connection",
-    "suspicious_child_process"
-  ],
-  "domains": [
-    "example.com"
-  ],
-  "ips": [
-    "185.x.x.x"
-  ]
-}
-```
-
-Future users can then receive a warning when the same file hash is encountered again.
-
-```text
-New File
-   ↓
-SHA-256
-   ↓
-MongoDB Intelligence
-   ↓
-Previously detected?
-   ↓
-YES
-   ↓
-Warn User
-```
-
----
-
-# 🌐 API Layer
-
-FastAPI can eventually expose intelligence services.
-
-Planned endpoints:
-
-```text
-POST /api/v1/check/hash
-POST /api/v1/report/detection
-
-GET /api/v1/intelligence/hash/{sha256}
-GET /api/v1/intelligence/ip/{ip}
-GET /api/v1/intelligence/domain/{domain}
-```
-
-The API is optional during the initial prototype.
-
-The local detection engine should remain functional without requiring a remote server.
-
----
-
-# 📁 Project Structure
-
-```text
-trojan-detector/
-│
+Trojan-Detector/
 ├── trojandetector/
-│   ├── cli.py
-│   ├── config.py
-│   ├── logger.py
-│   ├── models.py
-│   │
-│   ├── scanner/
-│   │   ├── file_scanner.py
-│   │   ├── hash_scanner.py
-│   │   ├── pe_analyzer.py
-│   │   └── yara_engine.py
-│   │
-│   ├── network/
-│   │   ├── packet_monitor.py
-│   │   ├── dns_monitor.py
-│   │   ├── ip_analyzer.py
-│   │   └── connection_tracker.py
-│   │
-│   ├── process/
-│   │   ├── process_monitor.py
-│   │   ├── process_tree.py
-│   │   └── process_analyzer.py
-│   │
-│   ├── behavior/
-│   │   ├── behavior_engine.py
-│   │   └── anomaly_detector.py
-│   │
-│   ├── risk/
-│   │   └── risk_engine.py
-│   │
-│   ├── intelligence/
-│   │   ├── hash_intelligence.py
-│   │   ├── ip_intelligence.py
-│   │   └── database.py
-│   │
-│   ├── response/
-│   │   ├── quarantine.py
-│   │   └── process_terminator.py
-│   │
-│   └── api/
-│       └── server.py
-│
-├── rules/
-│   └── yara/
-│
-├── tests/
-│
-├── docs/
-│
-├── requirements.txt
-├── pyproject.toml
-├── README.md
-└── LICENSE
+│   ├── behavior/       # Filesystem monitoring and correlation helpers
+│   ├── intelligence/   # Optional MongoDB and indicator lookups
+│   ├── network/        # DNS, IP, packet, and connection utilities
+│   ├── process/        # Process snapshots and ancestry
+│   ├── response/       # Quarantine and termination utilities
+│   ├── risk/           # Explainable risk scoring
+│   └── scanner/        # Hashing, PE analysis, and YARA
+├── rules/yara/         # Local YARA rules
+├── tests/              # pytest suite
+└── docs/               # Architecture and detection notes
 ```
 
----
+## Development and verification
 
-# 🧪 Testing Strategy
+Run the test suite with:
 
-Testing should be performed with **safe test samples and isolated environments**.
-
-The project should not rely on executing real malware on a development machine.
-
-Testing categories:
-
-### Unit Tests
-
-Test:
-
-- Hash generation
-- IP/subnet matching
-- DNS correlation
-- Risk calculations
-- File classification
-- Database operations
-
-### Integration Tests
-
-Test:
-
-```text
-File → Scanner → Risk Engine
+```bash
+python -m pytest -q
 ```
 
-```text
-Process → Network → Correlation → Risk Engine
+Compile the package with:
+
+```bash
+python -m compileall -q trojandetector
 ```
 
-```text
-Detection → MongoDB
-```
+Some existing DNS tests require outbound DNS access. When running in a restricted environment, DNS-dependent failures should be distinguished from local code failures. Do not test with live malware; use benign fixtures and isolated test programs.
 
-### Behavioral Tests
+## Roadmap
 
-Use controlled test programs that intentionally perform benign behaviors such as:
+### Implemented
 
-- Creating child processes
-- Making DNS requests
-- Connecting to a test server
-- Creating files
-- Modifying files
+- **Phase 1 — MVP:** CLI, hashing, basic file and PE scanning, process/network snapshots, DNS resolution, IP/subnet analysis, and risk reports.
+- **Phase 2 — Behavioral detection foundations:** Process tree inspection, filesystem watching, YARA scanning, correlation helpers, and additional risk signals.
+- **Phase 3 — Intelligence:** Optional MongoDB storage, hash/IP/domain summaries, detection history, and explicit community reporting.
 
-This allows the detector to be tested without deploying real malware.
+### Planned
 
----
+- **Phase 4 — Response:** Safer quarantine workflow, confirmation-gated process termination, incident reports, evidence collection, and recovery guidance.
+- **Phase 5 — Advanced analysis:** Isolated sandbox support, dynamic analysis, behavioral baselines, broader live event correlation, and a maintained API service.
 
-# 🔐 Security Considerations
+## Safety
 
-This project is intended for defensive security research and authorized environments.
+- Do not execute unknown samples on your primary machine.
+- Use an isolated, disposable VM or sandbox for dynamic analysis and restrict its network access.
+- Do not terminate or quarantine a process based solely on an unknown IP or one weak indicator.
+- Treat files, DNS answers, process metadata, YARA rules, and imported intelligence as untrusted data.
+- Keep MongoDB credentials in environment variables or a local ignored `.env` file.
 
-Important principles:
+## License and author
 
-- Do not execute unknown malware directly on your primary machine.
-- Use an isolated VM or sandbox for dynamic analysis.
-- Restrict network access during malware analysis.
-- Do not automatically terminate processes solely because an IP is unknown.
-- Require user confirmation before destructive response actions where appropriate.
-- Store secrets such as MongoDB credentials in environment variables.
-- Validate all data received from external sources.
-- Treat third-party threat intelligence as untrusted input.
-- Keep detection and response logic separate.
-
----
-
-# 🛣️ Development Roadmap
-
-## Phase 1 — MVP
-
-- [x] CLI
-- [x] File hashing
-- [x] Basic file scanner
-- [x] PE analysis
-- [x] Process monitoring
-- [x] DNS monitoring
-- [x] Network connection tracking
-- [x] IP/subnet correlation
-- [x] Basic risk engine
-- [x] Terminal alerts
-
-## Phase 2 — Behavioral Detection
-
-- [x] Process tree analysis
-- [x] Parent/child process correlation
-- [x] File system monitoring
-- [x] DNS-to-IP correlation
-- [x] Network-to-process correlation
-- [x] YARA integration (optional; requires `yara-python`)
-- [x] Improved risk scoring
-
-Phase 2 commands include `trojan-detector process-tree <PID>` and
-`trojan-detector watch-files <directory>`. File scans also apply local rules
-from `rules/yara/` when YARA is installed. The correlation helpers are
-available under `trojandetector.behavior.correlation`; DNS answers resolved
-through the DNS monitor can be matched with observed connection destinations.
-
-## Phase 3 — Intelligence
-
-- [ ] MongoDB integration
-- [ ] Hash intelligence
-- [ ] IP intelligence
-- [ ] Domain intelligence
-- [ ] Historical detections
-- [ ] Community detection reporting
-
-## Phase 4 — Response
-
-- [ ] Quarantine
-- [ ] Safe process termination
-- [ ] Incident reports
-- [ ] Evidence collection
-- [ ] Recovery workflow
-
-## Phase 5 — Advanced Analysis
-
-- [ ] Isolated sandbox
-- [ ] Dynamic analysis
-- [ ] Behavioral baselines
-- [ ] Anomaly detection
-- [ ] Advanced correlation
-- [ ] API service
-- [ ] Optional Tkinter GUI
-
----
-
-# 🎯 MVP Definition
-
-The first successful version should be able to do this:
-
-```text
-                    Suspicious File
-                           │
-                           ▼
-                       SHA-256
-                           │
-                           ▼
-                     Static Scan
-                           │
-                           ▼
-                     File Executed
-                           │
-                           ▼
-                  Process Monitoring
-                           │
-                           ▼
-                     DNS Request
-                           │
-                           ▼
-                    IP Resolution
-                           │
-                           ▼
-                  Network Connection
-                           │
-                           ▼
-                  Behavior Correlation
-                           │
-                           ▼
-                      Risk Score
-                           │
-                 ┌─────────┴─────────┐
-                 ▼                   ▼
-              LOW RISK           SUSPICIOUS
-                                     │
-                                     ▼
-                                  ALERT
-                                     │
-                                     ▼
-                              User Decision
-```
-
-If this pipeline works reliably, the project already has a strong foundation.
-
----
-
-# 📌 Future Vision
-
-The long-term goal is to evolve the project from a simple scanner into a **local behavioral security agent with shared threat intelligence**.
-
-The detector should eventually be able to answer:
-
-> **"What is this program doing, what resources is it touching, where is it communicating, how did it get here, and does that behavior match what we expect?"**
-
-rather than simply:
-
-> **"Does this file match a known malware signature?"**
-
----
-
-## ⚠️ Disclaimer
-
-This project is intended for cybersecurity education, defensive research, malware analysis in controlled environments, and authorized security testing.
-
-Never analyze or execute malware on systems you do not own or have explicit authorization to test.
-
----
-
-## 👨‍💻 Author
-
-**Chirrayu**
-
-B.Tech Computer Science Engineering  
-Cyber Security
-
-Built with Python, curiosity, and an unhealthy distrust of suspicious `.exe` files.
+The repository includes a `LICENSE` file. The project metadata credits Chirrayu.

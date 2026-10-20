@@ -37,6 +37,8 @@ WEIGHTS: dict[str, int] = {
     "yara_match": 25,
     "file_created_by_process": 10,
     "dns_connection_match": 5,
+    "known_malicious_hash": 100,
+    "known_suspicious_hash": 50,
 }
 
 # Process names commonly abused in attack chains
@@ -125,6 +127,24 @@ def score_file_scan(scan: FileScanResult) -> RiskReport:
             report.signals["pe_warnings"] = pts
             report.reasons.append(f"PE structural warnings: {len(pe.warnings)}")
 
+    report.total_score = min(sum(report.signals.values()), 100)
+    report.level = _level_from_score(report.total_score)
+    report.recommendation = _recommendation(report.level)
+    return report
+
+
+def score_hash_intelligence(record: dict | None) -> RiskReport:
+    """Add a strong but explainable signal for a previously reported hash."""
+    report = RiskReport()
+    if not record or not record.get("confirmed"):
+        return report
+    classification = record.get("classification")
+    if classification == "malicious":
+        report.signals["known_malicious_hash"] = WEIGHTS["known_malicious_hash"]
+        report.reasons.append("SHA-256 matches a previously confirmed malicious file report")
+    elif classification == "suspicious":
+        report.signals["known_suspicious_hash"] = WEIGHTS["known_suspicious_hash"]
+        report.reasons.append("SHA-256 matches a previously confirmed suspicious file report")
     report.total_score = min(sum(report.signals.values()), 100)
     report.level = _level_from_score(report.total_score)
     report.recommendation = _recommendation(report.level)

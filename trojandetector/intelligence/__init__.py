@@ -1,1 +1,1 @@
-"""Intelligence / database sub-package — Phase 3 placeholder."""
+"""Optional MongoDB-backed hash, IP, domain, and detection intelligence."""

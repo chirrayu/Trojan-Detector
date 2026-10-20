@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import typer
+import json
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -34,6 +35,8 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 console = Console()
+intel_app = typer.Typer(help="Query and submit confirmed threat intelligence.")
+app.add_typer(intel_app, name="intel")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -89,7 +92,12 @@ def scan(
 ) -> None:
     """Scan a file — hash, PE analysis, and risk assessment."""
     from trojandetector.scanner.file_scanner import scan_file
-    from trojandetector.risk.risk_engine import score_file_scan
+    from trojandetector.risk.risk_engine import (
+        merge_reports,
+        score_file_scan,
+        score_hash_intelligence,
+    )
+    from trojandetector.config import settings
 
     console.print(f"\n🔍 Scanning [bold cyan]{file.name}[/bold cyan]…\n")
 
@@ -150,6 +158,17 @@ def scan(
 
     # ── Risk ─────────────────────────────────────────────────────────
     report = score_file_scan(result)
+    if settings.mongodb_enabled and result.hashes:
+        try:
+            from trojandetector.intelligence.hash_intelligence import lookup_hash
+
+            intelligence = lookup_hash(result.hashes.sha256)
+            report = merge_reports(report, score_hash_intelligence(intelligence))
+            if intelligence:
+                console.print("[yellow]This hash has a prior intelligence report.[/yellow]")
+        except Exception as exc:
+            log.warning("Hash intelligence lookup unavailable: %s", exc)
+            console.print("[dim]Hash intelligence lookup is currently unavailable.[/dim]")
     _print_risk_report(report)
 
 
@@ -377,6 +396,83 @@ def watch_files(
 
     console.print(f"Watching [cyan]{directory.resolve()}[/cyan]. Press Ctrl+C to stop.")
     watch_directory(directory, callback=report, recursive=recursive)
+
+
+@intel_app.command("status")
+def intelligence_status() -> None:
+    """Show whether MongoDB intelligence is configured and reachable."""
+    from trojandetector.intelligence.database import check_connection
+
+    available, message = check_connection()
+    console.print(f"[green]●[/green] {message}" if available else f"[yellow]●[/yellow] {message}")
+
+
+@intel_app.command("lookup")
+def intelligence_lookup(target: str = typer.Argument(..., help="SHA-256, IP address, or domain.")) -> None:
+    """Look up an observable in local MongoDB intelligence."""
+    import ipaddress
+
+    try:
+        ipaddress.ip_address(target)
+    except ValueError:
+        if len(target) == 64 and all(c in "0123456789abcdefABCDEF" for c in target):
+            from trojandetector.intelligence.hash_intelligence import lookup_hash
+
+            record = lookup_hash(target)
+        else:
+            from trojandetector.intelligence.domain_intelligence import lookup_domain
+
+            record = lookup_domain(target)
+    else:
+        from trojandetector.intelligence.ip_intelligence import lookup_ip
+
+        record = lookup_ip(target)
+    console.print_json(json.dumps(record, default=str) if record else "{}")
+    if not record:
+        console.print("[dim]No intelligence record found.[/dim]")
+
+
+@intel_app.command("history")
+def intelligence_history(
+    limit: int = typer.Option(50, min=1, max=500, help="Maximum reports to show."),
+) -> None:
+    """Show recent confirmed community detection reports."""
+    from trojandetector.intelligence.database import get_detection_history
+
+    reports = get_detection_history(limit=limit)
+    if not reports:
+        console.print("[dim]No detection reports found.[/dim]")
+        return
+    console.print_json(json.dumps(reports, default=str))
+
+
+@intel_app.command("report")
+def intelligence_report(
+    classification: str = typer.Argument(..., help="Confirmed classification: suspicious or malicious."),
+    sha256: str | None = typer.Option(None, help="SHA-256 file indicator."),
+    ip: list[str] = typer.Option([], "--ip", help="Related IP address; repeat as needed."),
+    domain: list[str] = typer.Option([], "--domain", help="Related domain; repeat as needed."),
+    risk_score: int = typer.Option(0, min=0, max=100, help="Assessed risk score."),
+    reason: str = typer.Option("", help="Short explanation supporting the report."),
+    confirmed: bool = typer.Option(False, "--confirmed", help="Confirm this detection is suitable for community reporting."),
+) -> None:
+    """Submit an explicitly confirmed detection to shared intelligence."""
+    from trojandetector.intelligence.database import record_detection
+
+    try:
+        detection_id = record_detection({
+            "classification": classification.lower(),
+            "sha256": sha256,
+            "ips": ip,
+            "domains": domain,
+            "risk_score": risk_score,
+            "reason": reason.strip(),
+            "confirmed": confirmed,
+        })
+    except (ValueError, RuntimeError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from exc
+    console.print(f"[green]Detection report stored.[/green] ID: {detection_id}")
 
 
 @app.command()
